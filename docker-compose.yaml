@@ -1,0 +1,33 @@
+version: '3'
+
+volumes:
+  vkphoto:
+
+services:
+
+  mongo:
+    image: mongo
+    container_name: mongo
+    restart: unless-stopped
+    tty: true
+    volumes:
+      - /opt/db/mongo:/data/db
+    networks:
+      - vk_network
+
+  vkapi:
+    build:
+      context: .
+      dockerfile: vkapi/Dockerfile
+    image: vkapi
+    container_name: vkphotos
+    tty: True
+    working_dir: /vkapi
+    volumes:
+      - /opt/vkapi:/data
+    networks:
+      - vk_network
+
+networks:
+  vk_network:
+    driver: bridge
