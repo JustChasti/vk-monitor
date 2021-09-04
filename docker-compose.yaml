@@ -15,12 +15,30 @@ services:
     networks:
       - vk_network
 
+  flaskapi:
+    build:
+      context: .
+      dockerfile: flaskapi/Dockerfile
+    image: flaskapi
+    command: flask run
+    container_name: flaskvapi
+    env_file:
+      - .env
+    restart: always
+    tty: True
+    working_dir: /flaskapi
+    ports: 
+        - "5000:5000"
+    networks:
+      - vk_network
+
   vkapi:
     build:
       context: .
       dockerfile: vkapi/Dockerfile
     image: vkapi
     container_name: vkphotos
+    restart: always
     tty: True
     working_dir: /vkapi
     volumes:

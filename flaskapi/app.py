@@ -18,6 +18,7 @@ def hello():
 def send_job():
     response = request.get_json(force=True)
     response['Success'] = False
+    response['active'] = False
     result = collection.find_one({'name': response["name"]})
     if result:
         logger.warning("Duplicate joba")

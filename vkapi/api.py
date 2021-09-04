@@ -3,11 +3,12 @@ import json
 import time
 import urllib.request
 import os
+from threading import Thread
 
 from loguru import logger
 
 from config import token
-from config import max_photo_save
+from config import max_photo_save, threads_count
 from src.db import collection, jobs_collection
 
 
@@ -20,6 +21,7 @@ class NoResultsError(Exception):
 
 
 save_photo_counter = 0
+active_jobs_counter = 0
 
 
 def get_photos(job, start_time, end_time, count, offset):
@@ -48,6 +50,7 @@ def get_photos(job, start_time, end_time, count, offset):
         items = data["items"]
         for i in items:
             element = {}
+            element["job_name"] = job['name']
             element["album_id"] = i["album_id"]
             element["date"] = i["date"]
             element["id"] = i["id"]
@@ -120,17 +123,43 @@ def distributor(job, start_time, end_time, count):
             get_photos(job, start_time, end_time, 10, 0)
 
 
+def starter(job, begin_time, now_time):
+    global active_jobs_counter
+    jobs_collection.update_one({'_id': job['_id']},
+                               {"$set": {'active': True}})
+    try:
+        distributor(job, begin_time, now_time, 10)
+        logger.info("job complete")
+        jobs_collection.update_one({'_id': job['_id']},
+                                   {"$set": {'Success': True, 'active': False}})
+    except NoResultsError:
+        logger.info(f"No results for {job['name']}")
+        jobs_collection.update_one({'_id': job['_id']},
+                                   {"$set": {'Success': True, 'active': False}})
+    except Exception as e:
+        logger.exception(e)
+        jobs_collection.update_one({'_id': job['_id']},
+                                   {"$set": {'active': False}})
+    active_jobs_counter -= 1
+
+
 if __name__ == "__main__":
+    jobs_collection.update_many({'Success': False},
+                                {"$set": {'active': False}})
     while True:
         try:
-            job = jobs_collection.find_one({'Success': False})
+            job = jobs_collection.find_one({'Success': False, 'active': False})
             if job:
-                distributor(job, job['begin_time'], time.time(), 10)
-                logger.info("job complete")
-                jobs_collection.update_one({'_id': job['_id']},
-                                           {"$set": {'Success': True}})
+                if active_jobs_counter < threads_count:
+                    active_jobs_counter += 1
+                    th = Thread(target=starter, args=(job, job['begin_time'], time.time()))
+                    th.start()
+                else:
+                    logger.warning("To many active jobs, some jobs will be complete later")
+            elif active_jobs_counter != 0:
+                pass
             else:
-                logger.info("Theres no new jobs")
+                logger.info("Theres no active jobs")
         except Exception as e:
             logger.exception(e)
-        time.sleep(10)
+        time.sleep(5)

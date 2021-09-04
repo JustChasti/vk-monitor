@@ -59,3 +59,5 @@ vkapi/__pycache__/config.cpython-39.pyc
 vkapi/src/__pycache__/db.cpython-38.pyc
 vkapi/src/__pycache__/db.cpython-39.pyc
 flask server/src/__pycache__/db.cpython-39.pyc
+flaskapi/__pycache__/config.cpython-39.pyc
+flaskapi/src/__pycache__/db.cpython-39.pyc
