@@ -38,6 +38,8 @@ services:
       dockerfile: vkapi/Dockerfile
     image: vkapi
     container_name: vkphotos
+    env_file:
+      - .env
     restart: always
     tty: True
     working_dir: /vkapi
