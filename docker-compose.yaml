@@ -11,7 +11,7 @@ services:
     restart: unless-stopped
     tty: true
     volumes:
-      - /opt/db/vkphotosmongo:/data/vkphotosmongo
+      - /opt/db/vkphotosmongo:/data/vkphoto
     networks:
       - vk_network
 
