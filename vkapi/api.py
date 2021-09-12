@@ -1,14 +1,14 @@
+from logging import info
 import requests
-import json
 import time
 import urllib.request
 import os
-from threading import Thread
+import sys
 
 from loguru import logger
+from requests.api import get
 
 from config import token
-from config import max_photo_save, threads_count
 from src.db import collection, jobs_collection
 
 
@@ -18,10 +18,6 @@ class ConnectionError(Exception):
 
 class NoResultsError(Exception):
     pass
-
-
-save_photo_counter = 0
-active_jobs_counter = 0
 
 
 def get_photos(job, start_time, end_time, count, offset):
@@ -45,24 +41,34 @@ def get_photos(job, start_time, end_time, count, offset):
         else:
             logger.error("Invalid request")
             raise ConnectionError("Invalid request")
+
+    except ConnectionError as e:
+        logger.exception(e)
     except Exception as e:
+        pass
+
+    try:
         data = response.json()["response"]
         items = data["items"]
         for i in items:
-            element = {}
-            element["job_name"] = job['name']
-            element["album_id"] = i["album_id"]
-            element["date"] = i["date"]
-            element["id"] = i["id"]
-            element["owner_id"] = i["owner_id"]
-            if i["text"]:
-                element["text"] = i["text"]
-            element["has_tags"] = i["has_tags"]
-            element["photo"] = i["sizes"][-1]["url"]
-            add_photo(element)
+            add_photo({
+                "job_name": job['name'],
+                "album_id": i["album_id"],
+                "date": i["date"],
+                "id": i["id"],
+                "owner_id": i["owner_id"],
+                "text": i.get("text", ""),
+                "has_tags": i["has_tags"],
+                "photo": i["sizes"][-1]["url"]
+            })
         if count + offset < data["count"]:
             offset += count
             get_photos(job, start_time, end_time, count, offset)
+        else:
+            return None
+    except Exception as e:
+        logger.warning("This request to api fall")
+        logger.warning(response.json())
 
 
 def add_photo(element):
@@ -71,23 +77,12 @@ def add_photo(element):
         logger.warning('Duplicate photo')
     else:
         collection.insert_one(element)
-        global save_photo_counter
-        save_photo_counter += 1
-        if max_photo_save != 0:
-            if save_photo_counter <= max_photo_save:
-                os.mkdir(f'data/{element["id"]}')
-                try:
-                    urllib.request.urlretrieve(element["photo"],
-                                               f'data/{element["id"]}/{element["id"]}.jpg')
-                except Exception as e:
-                    logger.warning("Cant save this photo")
-        else:
+        try:
             os.mkdir(f'data/{element["id"]}')
-            try:
-                urllib.request.urlretrieve(element["photo"],
-                                           f'data/{element["id"]}/{element["id"]}.jpg')
-            except Exception as e:
-                logger.warning("Cant save this photo")
+            urllib.request.urlretrieve(element["photo"],
+                                       f'data/{element["id"]}/{element["id"]}.jpg')
+        except Exception as e:
+            logger.warning("Cant save this photo")
 
 
 def distributor(job, start_time, end_time, count):
@@ -109,55 +104,70 @@ def distributor(job, start_time, end_time, count):
             distributor(job, start_time, end_time, count)
         else:
             raise ConnectionError("Invalid request")
+
+    except ConnectionError as e:
+        logger.exception(e)
     except Exception as e:
-        data = response.json()["response"]
-        quantity = int(data["count"])
-        if quantity == 0:
-            raise NoResultsError("NO results")
-        print(quantity)
-        if quantity > 3000:
-            middle_time = (start_time + end_time)/2
-            distributor(job, start_time, middle_time, count)
-            distributor(job, middle_time, end_time, count)
-        else:
-            get_photos(job, start_time, end_time, 10, 0)
+        pass
+
+    data = response.json()["response"]
+    quantity = int(data["count"])
+    if quantity == 0:
+        raise NoResultsError("NO results")
+    print(quantity)
+    if quantity > 3000:
+        middle_time = (start_time + end_time)/2
+        distributor(job, start_time, middle_time, count)
+        distributor(job, middle_time, end_time, count)
+    else:
+        get_photos(job, start_time, end_time, 10, 0)
 
 
 def starter(job, begin_time, now_time):
-    global active_jobs_counter
-    jobs_collection.update_one({'_id': job['_id']},
-                               {"$set": {'active': True}})
+    jobs_collection.update_one(
+        {'_id': job['_id']},
+        {"$set": {'active': True}}
+    )
     try:
         distributor(job, begin_time, now_time, 10)
         logger.info("job complete")
-        jobs_collection.update_one({'_id': job['_id']},
-                                   {"$set": {'Success': True, 'active': False}})
+        jobs_collection.update_one(
+            {'_id': job['_id']},
+            {"$set": {'Success': True, 'active': False}}
+        )
     except NoResultsError:
         logger.info(f"No results for {job['name']}")
-        jobs_collection.update_one({'_id': job['_id']},
-                                   {"$set": {'Success': True, 'active': False}})
+        jobs_collection.update_one(
+            {'_id': job['_id']},
+            {"$set": {'Success': True, 'active': False}}
+        )
     except Exception as e:
         logger.exception(e)
-        jobs_collection.update_one({'_id': job['_id']},
-                                   {"$set": {'active': False}})
-    active_jobs_counter -= 1
+        jobs_collection.update_one(
+            {'_id': job['_id']},
+            {"$set": {'active': False}}
+        )
 
 
 if __name__ == "__main__":
-    jobs_collection.update_many({'Success': False},
-                                {"$set": {'active': False}})
+    jobs_collection.update_many(
+        {'Success': False},
+        {"$set": {'active': False}}
+    )
+    sys.setrecursionlimit(1000000)
+    try:
+        os.mkdir('data')
+    except FileExistsError as e:
+        pass
+    try:
+        logger.add("vkphoto.log")
+    except FileExistsError as e:
+        pass
     while True:
         try:
             job = jobs_collection.find_one({'Success': False, 'active': False})
             if job:
-                if active_jobs_counter < threads_count:
-                    active_jobs_counter += 1
-                    th = Thread(target=starter, args=(job, job['begin_time'], time.time()))
-                    th.start()
-                else:
-                    logger.warning("To many active jobs, some jobs will be complete later")
-            elif active_jobs_counter != 0:
-                pass
+                starter(job, job['begin_time'], time.time())
             else:
                 logger.info("Theres no active jobs")
         except Exception as e:

@@ -1,17 +1,17 @@
 version: '3'
 
 volumes:
-  vkphoto:
+  vkapi:
 
 services:
 
   mongo:
     image: mongo
-    container_name: mongo
+    container_name: vkphotosmongo
     restart: unless-stopped
     tty: true
     volumes:
-      - /opt/db/mongo:/data/db
+      - /opt/db/vkphotosmongo:/data/vkphotosmongo
     networks:
       - vk_network
 
@@ -44,7 +44,7 @@ services:
     tty: True
     working_dir: /vkapi
     volumes:
-      - /opt/vkapi:/data
+      - vkapi:/photos
     networks:
       - vk_network
 
